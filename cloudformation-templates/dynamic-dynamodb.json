@@ -24,6 +24,12 @@
       "MaxLength": "64",
       "AllowedPattern": "[-_ a-zA-Z0-9]*",
       "ConstraintDescription": "can contain only alphanumeric characters, spaces, dashes and underscores."
+    },
+
+    "InstanceType" : {
+      "Default" : "t1.micro",
+      "Description" : "AWS EC2 instance type",
+      "Type" : "String"
     }
   },
 
@@ -61,7 +67,7 @@
       "Type": "AWS::AutoScaling::LaunchConfiguration",
       "Properties": {
         "ImageId": { "Fn::FindInMap": [ "Region2AMI", { "Ref": "AWS::Region" }, "64" ] },
-        "InstanceType": "t1.micro",
+        "InstanceType": { "Ref" : "InstanceType" },
         "KeyName": { "Ref": "KeyPair" },
         "SecurityGroups": [ { "Ref": "SecurityGroup" } ],
         "IamInstanceProfile"  : { "Ref" : "IamInstanceProfile" },
@@ -113,7 +119,7 @@
               "easy_install pip || error_exit 'Failed to install pip'",
               "log \"Installed pip\"",
               "echo \"dynamic-dynamodb>=1.7.0,<2.0.0\">/etc/dynamic-dynamodb/requirements.txt",
-              "pip install -U -r /etc/dynamic-dynamodb/requirements.txt || error_exit 'Failed to install dynamic-dynamodb package from pip repository'",
+              "/usr/local/bin/pip install -U -r /etc/dynamic-dynamodb/requirements.txt || error_exit 'Failed to install dynamic-dynamodb package from pip repository'",
               "log \"Installed dynamic-dynamodb\"",
               "",
               "",
@@ -177,7 +183,7 @@
                       "### END INIT INFO",
                       "",
                       "NAME=dynamicdynamodb",
-                      "DAEMON=/usr/bin/dynamic-dynamodb",
+                      "DAEMON=/usr/local/bin/dynamic-dynamodb",
                       "DRY_RUN=$2",
                       "DAEMON_START_ARGS=\"--config /etc/dynamic-dynamodb/dynamic-dynamodb.conf --daemon start\"",
                       "DAEMON_STOP_ARGS=\"--config /etc/dynamic-dynamodb/dynamic-dynamodb.conf --daemon stop\"",
@@ -328,7 +334,7 @@
                 "group": "root"
               },
               "/etc/dynamic-dynamodb/example-dynamic-dynamodb.conf": {
-                "source": "https://raw2.github.com/sebdah/dynamic-dynamodb/master/example-dynamic-dynamodb.conf",
+                "source": "https://raw.github.com/sebdah/dynamic-dynamodb/master/example-dynamic-dynamodb.conf",
                 "mode": "000644",
                 "owner": "root",
                 "group": "root"

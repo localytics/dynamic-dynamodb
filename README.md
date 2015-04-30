@@ -4,6 +4,7 @@ Dynamic DynamoDB
 <a href="https://crate.io/packages/dynamic-dynamodb/"><img src="https://pypip.in/v/dynamic-dynamodb/badge.png"></a>
 <a href="https://crate.io/packages/dynamic-dynamodb/"><img src="https://pypip.in/d/dynamic-dynamodb/badge.png"></a>
 <a href="https://crate.io/packages/dynamic-dynamodb/"><img src="https://pypip.in/license/dynamic-dynamodb/badge.png"></a>
+<a href="http://dynamic-dynamodb.readthedocs.org/en/latest/"><img src="https://readthedocs.org/projects/dynamic-dynamodb/badge/?version=latest"></a>
 
 AWS NoSQL database DynamoDB is a great service, but it lacks automated throughput scaling. This is where Dynamic DynamoDB enters the stage. It provides automatic read and write provisioning for DynamoDB.
 
@@ -105,6 +106,16 @@ An example policy could look like this:
         }
       ]
     }
+
+Community applications
+----------------------
+
+There are a few community applications for managing Dynamic DynamoDB.
+
+- [puppet-dynamicdynamodb](https://github.com/mindcandy/puppet-dynamicdynamodb) (Puppet module)
+- [elasticDynamoDB](https://github.com/innovia/ElasticDynamoDb) (Wrapper for handling larger planned spikes)
+- [Dynamic DynamoDB manager](https://github.com/Mollom/dynamic-dynamodb-manager) (This tool will create your tables, rotate them and update dynamic-dynamodb config file so they are monitored)
+- [chef-dynamic-dynamodb](https://github.com/spaceapegames/chef-dynamic-dynamodb) (Chef cookbook - DEPRECATED)
 
 Reporting bugs
 --------------

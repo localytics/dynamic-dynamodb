@@ -115,7 +115,7 @@ def __calculate_always_decrease_rw_values(
     :param provisioned_writes: Currently provisioned writes
     :returns: (int, int) -- (reads, writes)
     """
-    if read_units < provisioned_reads and write_units < provisioned_writes:
+    if read_units <= provisioned_reads and write_units <= provisioned_writes:
         return (read_units, write_units)
 
     if read_units < provisioned_reads:
@@ -189,6 +189,8 @@ def __ensure_provisioning_reads(
         throttled_reads_upper_threshold = \
             get_gsi_option(
                 table_key, gsi_key, 'throttled_reads_upper_threshold')
+        min_provisioned_reads = \
+            get_gsi_option(table_key, gsi_key, 'min_provisioned_reads')
         max_provisioned_reads = \
             get_gsi_option(table_key, gsi_key, 'max_provisioned_reads')
         num_read_checks_before_scale_down = \
@@ -247,12 +249,14 @@ def __ensure_provisioning_reads(
                     current_read_units,
                     increase_reads_with,
                     get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
+                    consumed_read_units_percent,
                     '{0} - GSI: {1}'.format(table_name, gsi_name))
             else:
                 calculated_provisioning = calculators.increase_reads_in_units(
                     current_read_units,
                     increase_reads_with,
                     get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
+                    consumed_read_units_percent,
                     '{0} - GSI: {1}'.format(table_name, gsi_name))
 
             if current_read_units != calculated_provisioning:
@@ -260,6 +264,35 @@ def __ensure_provisioning_reads(
                     '{0} - Resetting the number of consecutive '
                     'read checks. Reason: scale up event detected'.format(
                         table_name))
+                num_consec_read_checks = 0
+                update_needed = True
+                updated_read_units = calculated_provisioning
+
+    # Increase needed due to high throttling
+    elif throttled_read_count > throttled_reads_upper_threshold:
+
+        if throttled_reads_upper_threshold > 0:
+
+            if increase_reads_unit == 'percent':
+                calculated_provisioning = calculators.increase_reads_in_percent(
+                    current_read_units,
+                    increase_reads_with,
+                    get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
+                    consumed_read_units_percent,
+                    '{0} - GSI: {1}'.format(table_name, gsi_name))
+            else:
+                calculated_provisioning = calculators.increase_reads_in_units(
+                    current_read_units,
+                    increase_reads_with,
+                    get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
+                    consumed_read_units_percent,
+                    '{0} - GSI: {1}'.format(table_name, gsi_name))
+
+            if current_read_units != calculated_provisioning:
+                logger.info(
+                    '{0} - GSI: {1} - Resetting the number of consecutive '
+                    'read checks. Reason: scale up event detected'.format(
+                        table_name, gsi_name))
                 num_consec_read_checks = 0
                 update_needed = True
                 updated_read_units = calculated_provisioning
@@ -297,41 +330,31 @@ def __ensure_provisioning_reads(
                     update_needed = True
                     updated_read_units = calculated_provisioning
 
-    # Increase needed due to high throttling
-    elif throttled_read_count > throttled_reads_upper_threshold:
-
-        if throttled_reads_upper_threshold > 0:
-
-            if increase_reads_unit == 'percent':
-                calculated_provisioning = calculators.increase_reads_in_percent(
-                    current_read_units,
-                    increase_reads_with,
-                    get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
-                    '{0} - GSI: {1}'.format(table_name, gsi_name))
-            else:
-                calculated_provisioning = calculators.increase_reads_in_units(
-                    current_read_units,
-                    increase_reads_with,
-                    get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
-                    '{0} - GSI: {1}'.format(table_name, gsi_name))
-
-            if current_read_units != calculated_provisioning:
-                logger.info(
-                    '{0} - GSI: {1} - Resetting the number of consecutive '
-                    'read checks. Reason: scale up event detected'.format(
-                        table_name, gsi_name))
-                num_consec_read_checks = 0
-                update_needed = True
-                updated_read_units = calculated_provisioning
-
     # Never go over the configured max provisioning
     if max_provisioned_reads:
         if int(updated_read_units) > int(max_provisioned_reads):
             update_needed = True
             updated_read_units = int(max_provisioned_reads)
             logger.info(
-                'Will not increase writes over gsi-max-provisioned-reads '
-                'limit ({0} writes)'.format(updated_read_units))
+                '{0} - GSI: {1} - Will not increase writes over '
+                'gsi-max-provisioned-reads '
+                'limit ({2} writes)'.format(
+                    table_name,
+                    gsi_name,
+                    updated_read_units))
+
+    # Ensure that we have met the min-provisioning
+    if min_provisioned_reads:
+        if int(min_provisioned_reads) > int(updated_read_units):
+            update_needed = True
+            updated_read_units = int(min_provisioned_reads)
+            logger.info(
+                '{0} - GSI: {1} - Increasing reads to'
+                'meet gsi-min-provisioned-reads '
+                'limit ({2} reads)'.format(
+                    table_name,
+                    gsi_name,
+                    updated_read_units))
 
     logger.info('{0} - GSI: {1} - Consecutive read checks {2}/{3}'.format(
         table_name,
@@ -394,6 +417,8 @@ def __ensure_provisioning_writes(
             get_gsi_option(table_key, gsi_key, 'decrease_writes_unit')
         decrease_writes_with = \
             get_gsi_option(table_key, gsi_key, 'decrease_writes_with')
+        min_provisioned_writes = \
+            get_gsi_option(table_key, gsi_key, 'min_provisioned_writes')
         max_provisioned_writes = \
             get_gsi_option(table_key, gsi_key, 'max_provisioned_writes')
         num_write_checks_before_scale_down = \
@@ -451,13 +476,47 @@ def __ensure_provisioning_writes(
                         current_write_units,
                         increase_writes_with,
                         get_gsi_option(
-                            table_key, gsi_key, 'max_provisioned_reads'),
+                            table_key, gsi_key, 'max_provisioned_writes'),
+                        consumed_write_units_percent,
                         '{0} - GSI: {1}'.format(table_name, gsi_name))
             else:
                 calculated_provisioning = calculators.increase_writes_in_units(
                     current_write_units,
                     increase_writes_with,
-                    get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
+                    get_gsi_option(
+                        table_key, gsi_key, 'max_provisioned_writes'),
+                    consumed_write_units_percent,
+                    '{0} - GSI: {1}'.format(table_name, gsi_name))
+
+            if current_write_units != calculated_provisioning:
+                logger.info(
+                    '{0} - GSI: {1} - Resetting the number of consecutive '
+                    'write checks. Reason: scale up event detected'.format(
+                        table_name, gsi_name))
+                num_consec_write_checks = 0
+                update_needed = True
+                updated_write_units = calculated_provisioning
+
+    # Increase needed due to high throttling
+    elif throttled_write_count > throttled_writes_upper_threshold:
+
+        if throttled_writes_upper_threshold > 0:
+            if increase_writes_unit == 'percent':
+                calculated_provisioning = \
+                    calculators.increase_writes_in_percent(
+                        current_write_units,
+                        increase_writes_with,
+                        get_gsi_option(
+                            table_key, gsi_key, 'max_provisioned_writes'),
+                        consumed_write_units_percent,
+                        '{0} - GSI: {1}'.format(table_name, gsi_name))
+            else:
+                calculated_provisioning = calculators.increase_writes_in_units(
+                    current_write_units,
+                    increase_writes_with,
+                    get_gsi_option(
+                        table_key, gsi_key, 'max_provisioned_writes'),
+                    consumed_write_units_percent,
                     '{0} - GSI: {1}'.format(table_name, gsi_name))
 
             if current_write_units != calculated_provisioning:
@@ -492,7 +551,8 @@ def __ensure_provisioning_writes(
                 calculated_provisioning = calculators.decrease_writes_in_units(
                     current_write_units,
                     decrease_writes_with,
-                    get_gsi_option(table_key, gsi_key, 'min_provisioned_reads'),
+                    get_gsi_option(
+                        table_key, gsi_key, 'min_provisioned_writes'),
                     '{0} - GSI: {1}'.format(table_name, gsi_name))
 
             if current_write_units != calculated_provisioning:
@@ -503,34 +563,6 @@ def __ensure_provisioning_writes(
                     update_needed = True
                     updated_write_units = calculated_provisioning
 
-    # Increase needed due to high throttling
-    elif throttled_write_count > throttled_writes_upper_threshold:
-
-        if throttled_writes_upper_threshold > 0:
-            if increase_writes_unit == 'percent':
-                calculated_provisioning = \
-                    calculators.increase_writes_in_percent(
-                        current_write_units,
-                        increase_writes_with,
-                        get_gsi_option(
-                            table_key, gsi_key, 'max_provisioned_reads'),
-                        '{0} - GSI: {1}'.format(table_name, gsi_name))
-            else:
-                calculated_provisioning = calculators.increase_writes_in_units(
-                    current_write_units,
-                    increase_writes_with,
-                    get_gsi_option(table_key, gsi_key, 'max_provisioned_reads'),
-                    '{0} - GSI: {1}'.format(table_name, gsi_name))
-
-            if current_write_units != calculated_provisioning:
-                logger.info(
-                    '{0} - GSI: {1} - Resetting the number of consecutive '
-                    'write checks. Reason: scale up event detected'.format(
-                        table_name, gsi_name))
-                num_consec_write_checks = 0
-                update_needed = True
-                updated_write_units = calculated_provisioning
-
     # Never go over the configured max provisioning
     if max_provisioned_writes:
         if int(updated_write_units) > int(max_provisioned_writes):
@@ -539,6 +571,19 @@ def __ensure_provisioning_writes(
             logger.info(
                 '{0} - GSI: {1} - '
                 'Will not increase writes over gsi-max-provisioned-writes '
+                'limit ({2} writes)'.format(
+                    table_name,
+                    gsi_name,
+                    updated_write_units))
+
+    # Ensure that we have met the min-provisioning
+    if min_provisioned_writes:
+        if int(min_provisioned_writes) > int(updated_write_units):
+            update_needed = True
+            updated_write_units = int(min_provisioned_writes)
+            logger.info(
+                '{0} - GSI: {1} - Increasing writes to'
+                'meet gsi-min-provisioned-writes '
                 'limit ({2} writes)'.format(
                     table_name,
                     gsi_name,
